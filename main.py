@@ -6,11 +6,14 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.gridlayout import GridLayout
 from kivy.uix.button import Button
 from kivy.uix.label import Label
+from kivy.uix.widget import Widget
+from kivy.graphics import Color, Ellipse, Triangle
+from kivy.metrics import dp
 from kivy.core.window import Window
 from kivy.utils import get_color_from_hex
 
 Window.clearcolor = get_color_from_hex("#0A0A0A")
-GOLD = get_color_from_hex("#D4AF37")
+RED = get_color_from_hex("#E50914")
 DARK = get_color_from_hex("#1A1A1A")
 DARK_LIGHT = get_color_from_hex("#2A2A2A")
 
@@ -18,6 +21,26 @@ _FONT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sadaf_fon
 BRAND_FONT = _FONT_PATH if os.path.exists(_FONT_PATH) else "Roboto"
 
 FUNCS = ['sin', 'cos', 'tan', 'log', 'ln', '√']
+
+
+class Heart(Widget):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.bind(pos=self._draw, size=self._draw)
+        self._draw()
+
+    def _draw(self, *args):
+        self.canvas.clear()
+        s = min(self.width, self.height)
+        x = self.x + (self.width - s) / 2
+        y = self.y + (self.height - s) / 2
+        with self.canvas:
+            Color(*RED)
+            Ellipse(pos=(x, y + 0.4 * s), size=(0.5 * s, 0.5 * s))
+            Ellipse(pos=(x + 0.5 * s, y + 0.4 * s), size=(0.5 * s, 0.5 * s))
+            Triangle(points=[x + 0.073 * s, y + 0.473 * s,
+                             x + 0.927 * s, y + 0.473 * s,
+                             x + 0.5 * s, y + 0.046 * s])
 
 
 class CalculatorEngine:
@@ -59,9 +82,18 @@ class SadafCalculatorApp(App):
 
         root = BoxLayout(orientation='vertical', padding=10, spacing=8)
 
-        header = Label(text="SADAF", font_name=BRAND_FONT, font_size='52sp',
-                       color=GOLD, size_hint_y=0.15)
+        header = BoxLayout(orientation='horizontal', size_hint_y=0.15, spacing=dp(12))
+        heart = Heart(size_hint=(None, None), size=(dp(44), dp(44)),
+                      pos_hint={'center_y': 0.5})
+        name = Label(text="SADAF", font_name=BRAND_FONT, font_size='52sp',
+                     color=RED, size_hint_x=None)
+        name.bind(texture_size=lambda inst, val: setattr(inst, 'width', val[0]))
+        header.add_widget(Widget())
+        header.add_widget(heart)
+        header.add_widget(name)
+        header.add_widget(Widget())
         root.add_widget(header)
+
         sub_header = Label(text="LUXURY EDITION  •  SCIENTIFIC", font_name=BRAND_FONT,
                            font_size='10sp', color=get_color_from_hex("#888888"),
                            size_hint_y=0.04)
@@ -78,7 +110,7 @@ class SadafCalculatorApp(App):
         root.add_widget(self.result_label)
 
         buttons = [
-            ['RAD', '(', ')', 'C', '⌫'],
+            ['RAD', '(', ')', 'C', 'DEL'],
             ['sin', 'cos', 'tan', '√', '^'],
             ['7', '8', '9', '÷', 'log'],
             ['4', '5', '6', '×', 'ln'],
@@ -92,9 +124,9 @@ class SadafCalculatorApp(App):
                 btn = Button(text=text, font_size='16sp', background_normal='',
                              background_color=DARK, color=get_color_from_hex("#FFFFFF"))
                 if text in ['=', '+', '-', '×', '÷', '^']:
-                    btn.background_color = GOLD
-                    btn.color = get_color_from_hex("#000000")
-                elif text in ['C', '⌫', 'RAD']:
+                    btn.background_color = RED
+                    btn.color = get_color_from_hex("#FFFFFF")
+                elif text in ['C', 'DEL', 'RAD']:
                     btn.background_color = DARK_LIGHT
 
                 btn.bind(on_press=self.on_button_press)
@@ -111,7 +143,7 @@ class SadafCalculatorApp(App):
         if text == 'C':
             self.expression = ""
             self.history_label.text = ""
-        elif text == '⌫':
+        elif text == 'DEL':
             self.expression = self.expression[:-1]
         elif text == '=':
             self.history_label.text = self.expression
