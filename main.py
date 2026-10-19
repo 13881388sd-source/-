@@ -83,25 +83,44 @@ class CalculatorEngine:
 
         return format(value, ".12g")
 
+    @staticmethod
+    def normalize_expression(expression):
+        exp = str(expression).strip()
+        if not exp:
+            return ""
+
+        exp = exp.replace("×", "*").replace("÷", "/")
+        exp = exp.replace("^", "**").replace("π", "pi")
+        exp = exp.replace("√", "sqrt").replace("%", "/100")
+
+        exp = re.sub(
+            r"(\d|\))(?=(?:\(|pi\b|e\b|sin\b|cos\b|tan\b|log\b|ln\b|sqrt\b))",
+            r"\1*",
+            exp,
+        )
+        exp = re.sub(r"\b(pi|e)\(", r"\1*(", exp)
+        return exp
+
     def calculate(self, expression):
-        if not expression:
+        if expression is None:
             return "0"
 
+        text = str(expression).strip()
+        if not text:
+            return "0"
+        if text == "Error":
+            return "Error"
+
+        normalized = self.normalize_expression(text)
+        if not normalized:
+            return "0"
+
+        if normalized.endswith(("+", "-", "*", "/", "**")):
+            return "Error"
+        if not re.search(r"\d|pi\b|e\b|sin\b|cos\b|tan\b|log\b|ln\b|sqrt\b", normalized):
+            return "Error"
+
         try:
-            exp = expression
-            exp = exp.replace("×", "*").replace("÷", "/")
-            exp = exp.replace("^", "**").replace("π", "pi")
-            exp = exp.replace("√", "sqrt")
-            exp = exp.replace("%", "/100")
-
-            # ضرب ضمنی، مثل 2(3) یا 2π
-            exp = re.sub(
-                r"(\d|\))(?=(?:\(|pi\b|e\b|sin\b|cos\b|tan\b|log\b|ln\b|sqrt\b))",
-                r"\1*",
-                exp
-            )
-            exp = re.sub(r"\b(pi|e)\(", r"\1*(", exp)
-
             functions = {
                 "sin": lambda x: math.sin(x) if self.is_rad else math.sin(math.radians(x)),
                 "cos": lambda x: math.cos(x) if self.is_rad else math.cos(math.radians(x)),
@@ -111,9 +130,10 @@ class CalculatorEngine:
                 "sqrt": math.sqrt,
             }
 
-            tree = ast.parse(exp, mode="eval")
+            tree = ast.parse(normalized, mode="eval")
             result = self._evaluate(tree.body, functions)
-
+            if not isinstance(result, (int, float)):
+                return "Error"
             return self.format_number(result)
 
         except Exception:
@@ -168,6 +188,10 @@ class CalculatorEngine:
                 raise ValueError("Invalid function")
 
             value = self._evaluate(node.args[0], functions)
+            if name in ("log", "ln") and value <= 0:
+                raise ValueError("Logarithm input must be > 0")
+            if name == "sqrt" and value < 0:
+                raise ValueError("Square root input must be >= 0")
             return functions[name](value)
 
         raise ValueError("Invalid expression")
@@ -299,7 +323,14 @@ class SadafCalculatorApp(App):
     def update_display(self):
         self.result_label.text = self.expression if self.expression else "0"
 
+    def reset_error_state(self):
+        if self.expression == "Error":
+            self.expression = ""
+            self.just_calculated = False
+
     def add_operator(self, operator):
+        self.reset_error_state()
+
         if not self.expression:
             if operator == "-":
                 self.expression = "-"
@@ -308,13 +339,18 @@ class SadafCalculatorApp(App):
         last = self.expression[-1]
 
         if last in OPERATORS:
-            if operator == "-":
+            if operator == "-" and last != "-":
                 self.expression += "-"
-            else:
+            elif operator != "-":
                 self.expression = self.expression[:-1] + operator
             return
 
-        if last == "(" and operator != "-":
+        if last == "(":
+            if operator == "-":
+                self.expression += "-"
+            return
+
+        if last == ".":
             return
 
         self.expression += operator
@@ -322,28 +358,53 @@ class SadafCalculatorApp(App):
     def memory_value_text(self):
         return CalculatorEngine.format_number(self.memory)
 
+    def insert_memory_value(self, value):
+        if not value or value == "Error":
+            return
+
+        if not self.expression or self.expression == "Error":
+            self.expression = value
+            return
+
+        if self.expression[-1] in ("0", "1", "2", "3", "4", "5", "6", "7", "8", "9", ")"):
+            self.expression += "*" + value
+        else:
+            self.expression += value
+
     def memory_action(self, action):
+        self.reset_error_state()
+
         if action == "MC":
             self.memory = 0
+            self.update_display()
+            return
 
-        elif action == "MR":
+        if action == "MR":
             value = self.memory_value_text()
-            if self.just_calculated or not self.expression:
-                self.expression = value
-            else:
-                self.expression += "(" + value + ")"
+            self.insert_memory_value(value)
             self.just_calculated = False
+            self.update_display()
+            return
 
-        elif action in ("M+", "M-"):
-            value = self.engine.calculate(self.expression or "0")
-            if value != "Error":
-                number = float(value)
-                if action == "M+":
-                    self.memory += number
-                else:
-                    self.memory -= number
+        if action in ("M+", "M-"):
+            if not self.expression:
+                return
+            value = self.engine.calculate(self.expression)
+            if value == "Error":
+                self.expression = "Error"
+                self.history_label.text = "Invalid expression"
+                self.update_display()
+                return
 
-        self.update_display()
+            number = float(value)
+            if action == "M+":
+                self.memory += number
+            else:
+                self.memory -= number
+
+            self.history_label.text = f"Memory {action}"
+            self.update_display()
+            return
 
     def copy_result(self):
         if self.expression and not self.just_calculated:
@@ -400,6 +461,47 @@ class SadafCalculatorApp(App):
         close_button.bind(on_press=popup.dismiss)
         popup.open()
 
+    def append_number_or_value(self, text):
+        self.reset_error_state()
+
+        if text == ".":
+            if not self.expression:
+                self.expression = "0."
+                return
+            if self.expression[-1] in OPERATORS or self.expression[-1] == "(":
+                self.expression += "0."
+                return
+            current = self.expression.split("+")[-1].split("-")[-1].split("×")[-1].split("÷")[-1].split("^")[-1]
+            if "." in current:
+                return
+            self.expression += "."
+            return
+
+        if text in ("(", ")"):
+            if text == "(":
+                if self.expression and (self.expression[-1].isdigit() or self.expression[-1] == ")"):
+                    self.expression += "*(" 
+                else:
+                    self.expression += "("
+            else:
+                if not self.expression:
+                    return
+                if self.expression[-1] in OPERATORS or self.expression[-1] == "(":
+                    return
+                if self.expression.count("(") <= self.expression.count(")"):
+                    return
+                self.expression += ")"
+            return
+
+        if self.just_calculated and (text.isdigit() or text == "."):
+            self.expression = ""
+        self.just_calculated = False
+
+        if self.expression and self.expression[-1] in ("0", "1", "2", "3", "4", "5", "6", "7", "8", "9", ")") and text.isdigit():
+            if self.expression and self.expression[-1] == ")":
+                self.expression += "*"
+        self.expression += text
+
     def on_button_press(self, button):
         text = button.text
 
@@ -415,20 +517,23 @@ class SadafCalculatorApp(App):
             self.copy_result()
             return
 
-        if self.expression == "Error":
-            self.expression = ""
-            self.just_calculated = False
-
         if text == "C":
             self.expression = ""
             self.history_label.text = ""
             self.just_calculated = False
+            self.update_display()
+            return
 
-        elif text == "DEL":
-            self.expression = self.expression[:-1]
+        if text == "DEL":
+            if self.expression == "Error":
+                self.expression = ""
+            elif self.expression:
+                self.expression = self.expression[:-1]
             self.just_calculated = False
+            self.update_display()
+            return
 
-        elif text == "=":
+        if text == "=":
             if not self.expression:
                 return
 
@@ -444,28 +549,34 @@ class SadafCalculatorApp(App):
                 self.expression = result
 
             self.just_calculated = True
-
-        elif text in ("RAD", "DEG"):
-            self.engine.is_rad = not self.engine.is_rad
-            button.text = "RAD" if self.engine.is_rad else "DEG"
+            self.update_display()
             return
 
-        elif text in OPERATORS:
+        if text in ("RAD", "DEG"):
+            self.engine.is_rad = not self.engine.is_rad
+            button.text = "RAD" if self.engine.is_rad else "DEG"
+            self.history_label.text = "Mode: RAD" if self.engine.is_rad else "Mode: DEG"
+            return
+
+        if text in OPERATORS:
             self.just_calculated = False
             self.add_operator(text)
+            self.update_display()
+            return
 
-        elif text in FUNCTIONS:
+        if text in FUNCTIONS:
+            self.reset_error_state()
             if self.just_calculated:
                 self.expression = ""
             self.just_calculated = False
+
+            if self.expression and self.expression[-1] in ("0", "1", "2", "3", "4", "5", "6", "7", "8", "9", ")"):
+                self.expression += "*"
             self.expression += text + "("
+            self.update_display()
+            return
 
-        else:
-            if self.just_calculated and (text.isdigit() or text == "."):
-                self.expression = ""
-            self.just_calculated = False
-            self.expression += text
-
+        self.append_number_or_value(text)
         self.update_display()
 
 
