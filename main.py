@@ -36,7 +36,7 @@ class Heart(Widget):
         y = self.y + (self.height - s) / 2
         with self.canvas:
             Color(*RED)
-            Ellipse(pos=(x, y + 0.4 * s), size=(0.5 * s, 0.5 * s))
+            Ellipse(pos=(x, y + 0.4 * s), size=(0.5 * s, 0.5 * s)); Triangle(points=[x + 0.073 * s, y + 0.473 * s, x + 0.927 * s, y + 0.473 * s, x + 0.5 * s, y + 0.65 * s])
             Ellipse(pos=(x + 0.5 * s, y + 0.4 * s), size=(0.5 * s, 0.5 * s))
             Triangle(points=[x + 0.073 * s, y + 0.473 * s,
                              x + 0.927 * s, y + 0.473 * s,
