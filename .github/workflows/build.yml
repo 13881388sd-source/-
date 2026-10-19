@@ -10,6 +10,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Download font
+        run: |
+          curl -fsSL "https://github.com/google/fonts/raw/main/ofl/cinzeldecorative/CinzelDecorative-Bold.ttf" -o font.tmp && mv font.tmp sadaf_font.ttf || echo "font download failed"
       - name: Install dependencies
         run: |
           sudo apt-get update
