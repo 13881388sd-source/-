@@ -1,76 +1,176 @@
+import ast
 import math
 import os
 import re
+
 from kivy.app import App
-from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.gridlayout import GridLayout
-from kivy.uix.button import Button
-from kivy.uix.label import Label
-from kivy.uix.widget import Widget
+from kivy.core.clipboard import Clipboard
+from kivy.core.window import Window
 from kivy.graphics import Color, Ellipse, Triangle
 from kivy.metrics import dp
-from kivy.core.window import Window
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.button import Button
+from kivy.uix.gridlayout import GridLayout
+from kivy.uix.label import Label
+from kivy.uix.popup import Popup
+from kivy.uix.scrollview import ScrollView
+from kivy.uix.widget import Widget
 from kivy.utils import get_color_from_hex
 
+
 Window.clearcolor = get_color_from_hex("#0A0A0A")
+
 RED = get_color_from_hex("#E50914")
 DARK = get_color_from_hex("#1A1A1A")
 DARK_LIGHT = get_color_from_hex("#2A2A2A")
+WHITE = get_color_from_hex("#FFFFFF")
+GRAY = get_color_from_hex("#888888")
 
-_FONT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sadaf_font.ttf")
-BRAND_FONT = _FONT_PATH if os.path.exists(_FONT_PATH) else "Roboto"
+FONT_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "sadaf_font.ttf"
+)
+BRAND_FONT = FONT_PATH if os.path.exists(FONT_PATH) else "Roboto"
 
-FUNCS = ['sin', 'cos', 'tan', 'log', 'ln', '√']
+FUNCTIONS = ("sin", "cos", "tan", "log", "ln", "√")
+OPERATORS = ("+", "-", "×", "÷", "^")
 
 
 class Heart(Widget):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.bind(pos=self._draw, size=self._draw)
-        self._draw()
+        self.bind(pos=self.draw, size=self.draw)
+        self.draw()
 
-    def _draw(self, *args):
+    def draw(self, *args):
         self.canvas.clear()
-        s = min(self.width, self.height)
-        x = self.x + (self.width - s) / 2
-        y = self.y + (self.height - s) / 2
+
+        side = min(self.width, self.height)
+        x = self.x + (self.width - side) / 2
+        y = self.y + (self.height - side) / 2
+
         with self.canvas:
             Color(*RED)
-            Ellipse(pos=(x, y + 0.4 * s), size=(0.5 * s, 0.5 * s)); Triangle(points=[x + 0.073 * s, y + 0.473 * s, x + 0.927 * s, y + 0.473 * s, x + 0.5 * s, y + 0.65 * s])
-            Ellipse(pos=(x + 0.5 * s, y + 0.4 * s), size=(0.5 * s, 0.5 * s))
-            Triangle(points=[x + 0.073 * s, y + 0.473 * s,
-                             x + 0.927 * s, y + 0.473 * s,
-                             x + 0.5 * s, y + 0.046 * s])
+            Ellipse(pos=(x, y + side * 0.4), size=(side * 0.5, side * 0.5))
+            Ellipse(
+                pos=(x + side * 0.5, y + side * 0.4),
+                size=(side * 0.5, side * 0.5)
+            )
+            Triangle(points=[
+                x + side * 0.07, y + side * 0.47,
+                x + side * 0.93, y + side * 0.47,
+                x + side * 0.5, y + side * 0.05
+            ])
 
 
 class CalculatorEngine:
     def __init__(self):
         self.is_rad = True
 
+    @staticmethod
+    def format_number(value):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return "Error"
+
+        if isinstance(value, int):
+            return str(value)
+
+        if not math.isfinite(value):
+            return "Error"
+
+        if value.is_integer():
+            return str(int(value))
+
+        return format(value, ".12g")
+
     def calculate(self, expression):
+        if not expression:
+            return "0"
+
         try:
-            exp = expression.replace('×', '*').replace('÷', '/').replace('^', '**')
-            exp = exp.replace('π', str(math.pi)).replace('%', '/100')
-            exp = exp.replace('√', 'sqrt')
-            exp = re.sub(r'(\d)\(', r'\1*(', exp)
-            allowed_names = {k: getattr(math, k) for k in
-                             ['sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'sqrt', 'exp',
-                              'factorial', 'radians', 'degrees', 'pi', 'e']}
-            allowed_names['ln'] = math.log
-            allowed_names['log'] = math.log10
+            exp = expression
+            exp = exp.replace("×", "*").replace("÷", "/")
+            exp = exp.replace("^", "**").replace("π", "pi")
+            exp = exp.replace("√", "sqrt")
+            exp = exp.replace("%", "/100")
 
-            if not self.is_rad:
-                exp = exp.replace('sin', 'sin_r').replace('cos', 'cos_r').replace('tan', 'tan_r')
-                allowed_names['sin_r'] = lambda x: math.sin(math.radians(x))
-                allowed_names['cos_r'] = lambda x: math.cos(math.radians(x))
-                allowed_names['tan_r'] = lambda x: math.tan(math.radians(x))
+            # ضرب ضمنی، مثل 2(3) یا 2π
+            exp = re.sub(
+                r"(\d|\))(?=(?:\(|pi\b|e\b|sin\b|cos\b|tan\b|log\b|ln\b|sqrt\b))",
+                r"\1*",
+                exp
+            )
+            exp = re.sub(r"\b(pi|e)\(", r"\1*(", exp)
 
-            result = eval(exp, {"__builtins__": {}}, allowed_names)
-            if isinstance(result, float) and result.is_integer():
-                return str(int(result))
-            return str(round(result, 10)).rstrip('0').rstrip('.')
+            functions = {
+                "sin": lambda x: math.sin(x) if self.is_rad else math.sin(math.radians(x)),
+                "cos": lambda x: math.cos(x) if self.is_rad else math.cos(math.radians(x)),
+                "tan": lambda x: math.tan(x) if self.is_rad else math.tan(math.radians(x)),
+                "log": math.log10,
+                "ln": math.log,
+                "sqrt": math.sqrt,
+            }
+
+            tree = ast.parse(exp, mode="eval")
+            result = self._evaluate(tree.body, functions)
+
+            return self.format_number(result)
+
         except Exception:
             return "Error"
+
+    def _evaluate(self, node, functions):
+        if isinstance(node, ast.Constant):
+            if isinstance(node.value, (int, float)) and not isinstance(node.value, bool):
+                return node.value
+            raise ValueError("Invalid value")
+
+        if isinstance(node, ast.Name):
+            if node.id == "pi":
+                return math.pi
+            if node.id == "e":
+                return math.e
+            raise ValueError("Unknown name")
+
+        if isinstance(node, ast.UnaryOp):
+            value = self._evaluate(node.operand, functions)
+            if isinstance(node.op, ast.UAdd):
+                return value
+            if isinstance(node.op, ast.USub):
+                return -value
+            raise ValueError("Invalid unary operation")
+
+        if isinstance(node, ast.BinOp):
+            left = self._evaluate(node.left, functions)
+            right = self._evaluate(node.right, functions)
+
+            if isinstance(node.op, ast.Add):
+                return left + right
+            if isinstance(node.op, ast.Sub):
+                return left - right
+            if isinstance(node.op, ast.Mult):
+                return left * right
+            if isinstance(node.op, ast.Div):
+                return left / right
+            if isinstance(node.op, ast.Pow):
+                if abs(right) > 1000:
+                    raise ValueError("Exponent too large")
+                return left ** right
+
+            raise ValueError("Invalid operation")
+
+        if isinstance(node, ast.Call):
+            if not isinstance(node.func, ast.Name):
+                raise ValueError("Invalid function")
+
+            name = node.func.id
+            if name not in functions or len(node.args) != 1 or node.keywords:
+                raise ValueError("Invalid function")
+
+            value = self._evaluate(node.args[0], functions)
+            return functions[name](value)
+
+        raise ValueError("Invalid expression")
 
 
 class SadafCalculatorApp(App):
@@ -79,86 +179,295 @@ class SadafCalculatorApp(App):
     def build(self):
         self.engine = CalculatorEngine()
         self.expression = ""
+        self.memory = 0
+        self.just_calculated = False
+        self.history = []
 
-        root = BoxLayout(orientation='vertical', padding=10, spacing=8)
+        root = BoxLayout(
+            orientation="vertical",
+            padding=dp(8),
+            spacing=dp(5)
+        )
 
-        header = BoxLayout(orientation='horizontal', size_hint_y=0.15, spacing=dp(12))
-        heart = Heart(size_hint=(None, None), size=(dp(44), dp(44)),
-                      pos_hint={'center_y': 0.5})
-        name = Label(text="SADAF", font_name=BRAND_FONT, font_size='52sp',
-                     color=RED, size_hint_x=None)
-        name.bind(texture_size=lambda inst, val: setattr(inst, 'width', val[0]))
+        header = BoxLayout(
+            orientation="horizontal",
+            size_hint_y=0.13,
+            spacing=dp(8)
+        )
+
         header.add_widget(Widget())
+
+        heart = Heart(size_hint=(None, None), size=(dp(42), dp(42)))
         header.add_widget(heart)
+
+        name = Label(
+            text="SADAF",
+            font_name=BRAND_FONT,
+            font_size="42sp",
+            color=RED,
+            size_hint_x=None,
+            width=dp(170)
+        )
         header.add_widget(name)
         header.add_widget(Widget())
         root.add_widget(header)
 
-        sub_header = Label(text="LUXURY EDITION  •  SCIENTIFIC", font_name=BRAND_FONT,
-                           font_size='10sp', color=get_color_from_hex("#888888"),
-                           size_hint_y=0.04)
-        root.add_widget(sub_header)
+        subtitle = Label(
+            text="LUXURY EDITION  •  SCIENTIFIC",
+            font_name=BRAND_FONT,
+            font_size="10sp",
+            color=GRAY,
+            size_hint_y=0.04
+        )
+        root.add_widget(subtitle)
 
-        self.history_label = Label(text="", font_size='16sp',
-                                   color=get_color_from_hex("#888888"), size_hint_y=0.06,
-                                   halign='right', text_size=(Window.width - 20, None))
-        self.result_label = Label(text="0", font_size='42sp',
-                                  color=get_color_from_hex("#FFFFFF"), size_hint_y=0.16,
-                                  halign='right', text_size=(Window.width - 20, None),
-                                  bold=True)
+        self.history_label = Label(
+            text="",
+            font_size="15sp",
+            color=GRAY,
+            size_hint_y=0.07,
+            halign="right",
+            valign="middle"
+        )
+        self.history_label.bind(
+            size=lambda label, size: setattr(label, "text_size", size)
+        )
         root.add_widget(self.history_label)
+
+        self.result_label = Label(
+            text="0",
+            font_size="40sp",
+            color=WHITE,
+            bold=True,
+            size_hint_y=0.17,
+            halign="right",
+            valign="middle"
+        )
+        self.result_label.bind(
+            size=lambda label, size: setattr(label, "text_size", size)
+        )
         root.add_widget(self.result_label)
 
-        buttons = [
-            ['RAD', '(', ')', 'C', 'DEL'],
-            ['sin', 'cos', 'tan', '√', '^'],
-            ['7', '8', '9', '÷', 'log'],
-            ['4', '5', '6', '×', 'ln'],
-            ['1', '2', '3', '-', 'π'],
-            ['0', '.', '%', '+', '='],
+        history_button = Button(
+            text="HISTORY",
+            font_size="13sp",
+            size_hint_y=0.05,
+            background_normal="",
+            background_color=DARK_LIGHT,
+            color=WHITE
+        )
+        history_button.bind(on_press=self.show_history)
+        root.add_widget(history_button)
+
+        rows = [
+            ["MC", "MR", "M+", "M-", "COPY"],
+            ["RAD", "(", ")", "C", "DEL"],
+            ["sin", "cos", "tan", "√", "^"],
+            ["7", "8", "9", "÷", "log"],
+            ["4", "5", "6", "×", "ln"],
+            ["1", "2", "3", "-", "π"],
+            ["0", ".", "%", "+", "="],
         ]
 
-        grid = GridLayout(cols=5, spacing=8, size_hint_y=0.59)
-        for row in buttons:
-            for text in row:
-                btn = Button(text=text, font_size='16sp', background_normal='',
-                             background_color=DARK, color=get_color_from_hex("#FFFFFF"))
-                if text in ['=', '+', '-', '×', '÷', '^']:
-                    btn.background_color = RED
-                    btn.color = get_color_from_hex("#FFFFFF")
-                elif text in ['C', 'DEL', 'RAD']:
-                    btn.background_color = DARK_LIGHT
+        grid = GridLayout(
+            cols=5,
+            spacing=dp(5),
+            size_hint_y=0.54
+        )
 
-                btn.bind(on_press=self.on_button_press)
-                grid.add_widget(btn)
+        for row in rows:
+            for text in row:
+                button = Button(
+                    text=text,
+                    font_size="14sp",
+                    background_normal="",
+                    background_color=DARK,
+                    color=WHITE
+                )
+
+                if text in ("=", "+", "-", "×", "÷", "^"):
+                    button.background_color = RED
+                elif text in ("C", "DEL", "RAD", "MC", "MR", "M+", "M-", "COPY"):
+                    button.background_color = DARK_LIGHT
+
+                button.bind(on_press=self.on_button_press)
+                grid.add_widget(button)
 
         root.add_widget(grid)
         return root
 
-    def on_button_press(self, instance):
-        text = instance.text
-        if self.expression == "Error":
-            self.expression = ""
-
-        if text == 'C':
-            self.expression = ""
-            self.history_label.text = ""
-        elif text == 'DEL':
-            self.expression = self.expression[:-1]
-        elif text == '=':
-            self.history_label.text = self.expression
-            self.expression = self.engine.calculate(self.expression)
-        elif text in ('RAD', 'DEG'):
-            self.engine.is_rad = not self.engine.is_rad
-            instance.text = "RAD" if self.engine.is_rad else "DEG"
-            return
-        elif text in FUNCS:
-            self.expression += text + "("
-        else:
-            self.expression += text
-
+    def update_display(self):
         self.result_label.text = self.expression if self.expression else "0"
 
+    def add_operator(self, operator):
+        if not self.expression:
+            if operator == "-":
+                self.expression = "-"
+            return
 
-if __name__ == '__main__':
+        last = self.expression[-1]
+
+        if last in OPERATORS:
+            if operator == "-":
+                self.expression += "-"
+            else:
+                self.expression = self.expression[:-1] + operator
+            return
+
+        if last == "(" and operator != "-":
+            return
+
+        self.expression += operator
+
+    def memory_value_text(self):
+        return CalculatorEngine.format_number(self.memory)
+
+    def memory_action(self, action):
+        if action == "MC":
+            self.memory = 0
+
+        elif action == "MR":
+            value = self.memory_value_text()
+            if self.just_calculated or not self.expression:
+                self.expression = value
+            else:
+                self.expression += "(" + value + ")"
+            self.just_calculated = False
+
+        elif action in ("M+", "M-"):
+            value = self.engine.calculate(self.expression or "0")
+            if value != "Error":
+                number = float(value)
+                if action == "M+":
+                    self.memory += number
+                else:
+                    self.memory -= number
+
+        self.update_display()
+
+    def copy_result(self):
+        if self.expression and not self.just_calculated:
+            value = self.engine.calculate(self.expression)
+            if value == "Error":
+                value = self.result_label.text
+        else:
+            value = self.result_label.text
+
+        Clipboard.copy(value)
+        self.history_label.text = "Copied: " + value
+
+    def show_history(self, *args):
+        content = BoxLayout(
+            orientation="vertical",
+            padding=dp(10),
+            spacing=dp(8)
+        )
+
+        scroll = ScrollView()
+        text = "\n".join(self.history) if self.history else "No calculations yet"
+
+        label = Label(
+            text=text,
+            size_hint_y=None,
+            halign="right",
+            valign="top",
+            color=WHITE
+        )
+        label.bind(
+            width=lambda widget, width: setattr(widget, "text_size", (width, None))
+        )
+        label.bind(
+            texture_size=lambda widget, size: setattr(widget, "height", size[1] + dp(20))
+        )
+
+        scroll.add_widget(label)
+        content.add_widget(scroll)
+
+        close_button = Button(
+            text="CLOSE",
+            size_hint_y=None,
+            height=dp(45),
+            background_normal="",
+            background_color=RED
+        )
+        content.add_widget(close_button)
+
+        popup = Popup(
+            title="Calculation history",
+            content=content,
+            size_hint=(0.9, 0.7)
+        )
+        close_button.bind(on_press=popup.dismiss)
+        popup.open()
+
+    def on_button_press(self, button):
+        text = button.text
+
+        if text == "HISTORY":
+            self.show_history()
+            return
+
+        if text in ("MC", "MR", "M+", "M-"):
+            self.memory_action(text)
+            return
+
+        if text == "COPY":
+            self.copy_result()
+            return
+
+        if self.expression == "Error":
+            self.expression = ""
+            self.just_calculated = False
+
+        if text == "C":
+            self.expression = ""
+            self.history_label.text = ""
+            self.just_calculated = False
+
+        elif text == "DEL":
+            self.expression = self.expression[:-1]
+            self.just_calculated = False
+
+        elif text == "=":
+            if not self.expression:
+                return
+
+            old_expression = self.expression
+            result = self.engine.calculate(old_expression)
+
+            if result == "Error":
+                self.expression = "Error"
+            else:
+                self.history.insert(0, old_expression + " = " + result)
+                self.history = self.history[:30]
+                self.history_label.text = old_expression
+                self.expression = result
+
+            self.just_calculated = True
+
+        elif text in ("RAD", "DEG"):
+            self.engine.is_rad = not self.engine.is_rad
+            button.text = "RAD" if self.engine.is_rad else "DEG"
+            return
+
+        elif text in OPERATORS:
+            self.just_calculated = False
+            self.add_operator(text)
+
+        elif text in FUNCTIONS:
+            if self.just_calculated:
+                self.expression = ""
+            self.just_calculated = False
+            self.expression += text + "("
+
+        else:
+            if self.just_calculated and (text.isdigit() or text == "."):
+                self.expression = ""
+            self.just_calculated = False
+            self.expression += text
+
+        self.update_display()
+
+
+if __name__ == "__main__":
     SadafCalculatorApp().run()
