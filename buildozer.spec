@@ -12,6 +12,12 @@ requirements = python3,kivy==2.3.0
 orientation = portrait
 fullscreen = 0
 
+icon.filename = %(source.dir)s/data/icon.png
+icon.adaptive_foreground.filename = %(source.dir)s/data/icon_fg.png
+icon.adaptive_background.filename = %(source.dir)s/data/icon_bg.png
+presplash.filename = %(source.dir)s/data/presplash.png
+android.presplash_color = #0A0A0A
+
 android.api = 33
 android.ndk = 25b
 android.archs = arm64-v8a
