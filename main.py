@@ -1,142 +1,93 @@
 import math
-import ast
+import os
 import re
-
 from kivy.app import App
-from kivy.core.clipboard import Clipboard
-from kivy.core.window import Window
-from kivy.metrics import dp
 from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.button import Button
 from kivy.uix.gridlayout import GridLayout
+from kivy.uix.button import Button
 from kivy.uix.label import Label
+from kivy.uix.widget import Widget
+from kivy.graphics import Color, Ellipse, Triangle
+from kivy.metrics import dp
+from kivy.core.window import Window
+from kivy.core.clipboard import Clipboard
 from kivy.utils import get_color_from_hex
 
 Window.clearcolor = get_color_from_hex("#0A0A0A")
-
 RED = get_color_from_hex("#E50914")
 DARK = get_color_from_hex("#1A1A1A")
 DARK_LIGHT = get_color_from_hex("#2A2A2A")
+GRAY = get_color_from_hex("#888888")
 WHITE = get_color_from_hex("#FFFFFF")
-GRAY = get_color_from_hex("#8A8A8A")
 
-FUNCTIONS = ("sin", "cos", "tan", "log", "ln", "√")
-OPERATORS = ("+", "-", "×", "÷", "^")
+_FONT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sadaf_font.ttf")
+BRAND_FONT = _FONT_PATH if os.path.exists(_FONT_PATH) else "Roboto"
+
+FUNCS = ['sin', 'cos', 'tan', 'log', 'ln', '√']
+OPS = ['=', '+', '-', '×', '÷', '^']
+SPECIAL = ['MC', 'MR', 'M+', 'M-', 'COPY', 'C', 'DEL', 'RAD']
+
+
+def fmt(value):
+    if isinstance(value, int):
+        return str(value)
+    if value.is_integer():
+        return str(int(value))
+    text = str(round(value, 10))
+    if '.' in text:
+        text = text.rstrip('0').rstrip('.')
+    return text
+
+
+class Heart(Widget):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.bind(pos=self._draw, size=self._draw)
+        self._draw()
+
+    def _draw(self, *args):
+        self.canvas.clear()
+        s = min(self.width, self.height)
+        x = self.x + (self.width - s) / 2
+        y = self.y + (self.height - s) / 2
+        with self.canvas:
+            Color(*RED)
+            Ellipse(pos=(x, y + 0.4 * s), size=(0.5 * s, 0.5 * s))
+            Ellipse(pos=(x + 0.5 * s, y + 0.4 * s), size=(0.5 * s, 0.5 * s))
+            Triangle(points=[x + 0.073 * s, y + 0.473 * s,
+                             x + 0.927 * s, y + 0.473 * s,
+                             x + 0.5 * s, y + 0.046 * s])
+            Triangle(points=[x + 0.073 * s, y + 0.473 * s,
+                             x + 0.927 * s, y + 0.473 * s,
+                             x + 0.5 * s, y + 0.65 * s])
 
 
 class CalculatorEngine:
     def __init__(self):
         self.is_rad = True
 
-    @staticmethod
-    def format_number(value):
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            return "Error"
-        if not math.isfinite(value):
-            return "Error"
-        if isinstance(value, int):
-            return str(value)
-        if value.is_integer():
-            return str(int(value))
-        return format(value, ".12g")
-
-    @staticmethod
-    def normalize_expression(text):
-        exp = str(text).strip()
-        if not exp:
-            return ""
-        exp = exp.replace("×", "*").replace("÷", "/")
-        exp = exp.replace("^", "**").replace("π", "pi")
-        exp = exp.replace("√", "sqrt").replace("%", "/100")
-        exp = re.sub(r"(?<=\d)(?=\()", "*", exp)
-        exp = re.sub(r"(?<=\))(?=\()", "*", exp)
-        exp = re.sub(r"(?<=\d)(?=pi\b)", "*", exp)
-        exp = re.sub(r"(?<=\d)(?=e\b)", "*", exp)
-        exp = re.sub(r"(?<=\d)(?=sin\b|cos\b|tan\b|log\b|ln\b|sqrt\b)", "*", exp)
-        exp = re.sub(r"\b(pi|e)\(", r"\1*(", exp)
-        return exp
-
     def calculate(self, expression):
-        text = str(expression).strip() if expression is not None else ""
-        if not text:
-            return "0"
-        if text == "Error":
-            return "Error"
-
-        exp = self.normalize_expression(text)
-        if not exp:
-            return "0"
-        if exp.endswith(("+", "-", "*", "/", "**")):
-            return "Error"
-
         try:
-            functions = {
-                "sin": lambda x: math.sin(x) if self.is_rad else math.sin(math.radians(x)),
-                "cos": lambda x: math.cos(x) if self.is_rad else math.cos(math.radians(x)),
-                "tan": lambda x: math.tan(x) if self.is_rad else math.tan(math.radians(x)),
-                "log": math.log10,
-                "ln": math.log,
-                "sqrt": math.sqrt,
-            }
-            tree = ast.parse(exp, mode="eval")
-            result = self._evaluate(tree.body, functions)
-            return self.format_number(result)
+            exp = expression.replace('×', '*').replace('÷', '/').replace('^', '**')
+            exp = exp.replace('π', str(math.pi)).replace('%', '/100')
+            exp = exp.replace('√', 'sqrt')
+            exp = re.sub(r'(\d)\(', r'\1*(', exp)
+            allowed_names = {k: getattr(math, k) for k in
+                             ['sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'sqrt', 'exp',
+                              'factorial', 'radians', 'degrees', 'pi', 'e']}
+            allowed_names['ln'] = math.log
+            allowed_names['log'] = math.log10
+
+            if not self.is_rad:
+                exp = exp.replace('sin', 'sin_r').replace('cos', 'cos_r').replace('tan', 'tan_r')
+                allowed_names['sin_r'] = lambda x: math.sin(math.radians(x))
+                allowed_names['cos_r'] = lambda x: math.cos(math.radians(x))
+                allowed_names['tan_r'] = lambda x: math.tan(math.radians(x))
+
+            result = eval(exp, {"__builtins__": {}}, allowed_names)
+            return fmt(result)
         except Exception:
             return "Error"
-
-    def _evaluate(self, node, functions):
-        if isinstance(node, ast.Constant):
-            if isinstance(node.value, (int, float)) and not isinstance(node.value, bool):
-                return node.value
-            raise ValueError("Invalid value")
-
-        if isinstance(node, ast.Name):
-            if node.id == "pi":
-                return math.pi
-            if node.id == "e":
-                return math.e
-            raise ValueError("Unknown name")
-
-        if isinstance(node, ast.UnaryOp):
-            val = self._evaluate(node.operand, functions)
-            if isinstance(node.op, ast.UAdd):
-                return val
-            if isinstance(node.op, ast.USub):
-                return -val
-            raise ValueError("Invalid unary operation")
-
-        if isinstance(node, ast.BinOp):
-            left = self._evaluate(node.left, functions)
-            right = self._evaluate(node.right, functions)
-
-            if isinstance(node.op, ast.Add):
-                return left + right
-            if isinstance(node.op, ast.Sub):
-                return left - right
-            if isinstance(node.op, ast.Mult):
-                return left * right
-            if isinstance(node.op, ast.Div):
-                if right == 0:
-                    raise ZeroDivisionError("Division by zero")
-                return left / right
-            if isinstance(node.op, ast.Pow):
-                return left ** right
-            raise ValueError("Invalid operation")
-
-        if isinstance(node, ast.Call):
-            if not isinstance(node.func, ast.Name):
-                raise ValueError("Invalid function")
-            name = node.func.id
-            if name not in functions or len(node.args) != 1 or node.keywords:
-                raise ValueError("Invalid function")
-            value = self._evaluate(node.args[0], functions)
-            if name in ("log", "ln") and value <= 0:
-                raise ValueError("Log input must be positive")
-            if name == "sqrt" and value < 0:
-                raise ValueError("Square root input must be non-negative")
-            return functions[name](value)
-
-        raise ValueError("Invalid expression")
 
 
 class SadafCalculatorApp(App):
@@ -145,65 +96,49 @@ class SadafCalculatorApp(App):
     def build(self):
         self.engine = CalculatorEngine()
         self.expression = ""
-        self.memory = 0
-        self.just_calculated = False
-        self.history = []
+        self.memory = 0.0
 
-        root = BoxLayout(orientation="vertical", padding=dp(10), spacing=dp(8))
+        root = BoxLayout(orientation='vertical', padding=10, spacing=8)
 
-        title = Label(
-            text="SADAF",
-            color=RED,
-            bold=True,
-            font_size="28sp",
-            size_hint_y=0.12,
-            halign="center",
-        )
-        root.add_widget(title)
+        header = BoxLayout(orientation='horizontal', size_hint_y=0.12, spacing=dp(12))
+        heart = Heart(size_hint=(None, None), size=(dp(40), dp(40)),
+                      pos_hint={'center_y': 0.5})
+        name = Label(text="SADAF", font_name=BRAND_FONT, font_size='48sp',
+                     color=RED, size_hint_x=None)
+        name.bind(texture_size=lambda inst, val: setattr(inst, 'width', val[0]))
+        header.add_widget(Widget())
+        header.add_widget(heart)
+        header.add_widget(name)
+        header.add_widget(Widget())
+        root.add_widget(header)
 
-        self.result_label = Label(
-            text="0",
-            color=WHITE,
-            bold=True,
-            font_size="38sp",
-            halign="right",
-            valign="middle",
-            size_hint_y=0.18,
-        )
+        root.add_widget(Label(text="LUXURY EDITION  |  SCIENTIFIC", font_name=BRAND_FONT,
+                              font_size='10sp', color=GRAY, size_hint_y=0.03))
+
+        self.result_label = Label(text="0", font_size='42sp', color=WHITE,
+                                  size_hint_y=0.2, bold=True)
+        self.status_label = Label(text="", font_size='13sp', color=GRAY, size_hint_y=0.04)
         root.add_widget(self.result_label)
+        root.add_widget(self.status_label)
 
-        self.history_label = Label(
-            text="",
-            color=GRAY,
-            font_size="12sp",
-            halign="right",
-            size_hint_y=0.08,
-        )
-        root.add_widget(self.history_label)
-
-        rows = [
-            ["MC", "MR", "M+", "M-", "COPY"],
-            ["RAD", "(", ")", "C", "DEL"],
-            ["sin", "cos", "tan", "√", "^"],
-            ["7", "8", "9", "÷", "log"],
-            ["4", "5", "6", "×", "ln"],
-            ["1", "2", "3", "-", "π"],
-            ["0", ".", "%", "+", "="],
+        buttons = [
+            ['MC', 'MR', 'M+', 'M-', 'COPY'],
+            ['RAD', '(', ')', 'C', 'DEL'],
+            ['sin', 'cos', 'tan', '√', '^'],
+            ['7', '8', '9', '÷', 'log'],
+            ['4', '5', '6', '×', 'ln'],
+            ['1', '2', '3', '-', 'π'],
+            ['0', '.', '%', '+', '='],
         ]
 
-        grid = GridLayout(cols=5, spacing=dp(6), size_hint_y=0.62)
-        for row in rows:
+        grid = GridLayout(cols=5, spacing=8, size_hint_y=0.61)
+        for row in buttons:
             for text in row:
-                btn = Button(
-                    text=text,
-                    color=WHITE,
-                    font_size="15sp",
-                    background_normal="",
-                    background_color=DARK,
-                )
-                if text in ("=", "+", "-", "×", "÷", "^"):
+                btn = Button(text=text, font_size='16sp', background_normal='',
+                             background_color=DARK, color=WHITE)
+                if text in OPS:
                     btn.background_color = RED
-                elif text in ("C", "DEL", "RAD", "MC", "MR", "M+", "M-", "COPY"):
+                elif text in SPECIAL:
                     btn.background_color = DARK_LIGHT
                 btn.bind(on_press=self.on_button_press)
                 grid.add_widget(btn)
@@ -211,180 +146,62 @@ class SadafCalculatorApp(App):
         root.add_widget(grid)
         return root
 
-    def update_display(self):
-        self.result_label.text = self.expression if self.expression else "0"
-
-    def add_operator(self, operator):
+    def current_value(self):
         if not self.expression:
-            if operator == "-":
-                self.expression = "-"
-            return
+            return 0.0
+        try:
+            return float(self.engine.calculate(self.expression))
+        except ValueError:
+            return None
 
-        last = self.expression[-1]
-        if last in OPERATORS:
-            if operator == "-" and last != "-":
-                self.expression += "-"
-            elif operator != "-":
-                self.expression = self.expression[:-1] + operator
-            return
-
-        if last == "(":
-            if operator == "-":
-                self.expression += "-"
-            return
-
-        if last == ".":
-            return
-
-        self.expression += operator
-
-    def memory_action(self, action):
-        if action == "MC":
-            self.memory = 0
-            self.history_label.text = "Memory cleared"
-            self.update_display()
-            return
-
-        if action == "MR":
-            value = str(self.memory)
-            if self.just_calculated or not self.expression:
-                self.expression = value
-            else:
-                self.expression += value
-            self.just_calculated = False
-            self.update_display()
-            return
-
-        if action in ("M+", "M-"):
-            if not self.expression:
-                return
-            result = self.engine.calculate(self.expression)
-            if result == "Error":
-                self.expression = "Error"
-                self.update_display()
-                return
-            number = float(result)
-            if action == "M+":
-                self.memory += number
-            else:
-                self.memory -= number
-            self.history_label.text = f"Memory {action}"
-
-    def copy_result(self):
-        value = self.expression if self.expression and self.expression != "Error" else self.result_label.text
-        Clipboard.copy(value)
-        self.history_label.text = "Copied: " + value
-
-    def append_numeric(self, text):
-        if self.expression == "Error":
-            self.expression = ""
-
-        if text == ".":
-            if not self.expression:
-                self.expression = "0."
-                return
-            if self.expression[-1] in OPERATORS or self.expression[-1] == "(":
-                self.expression += "0."
-                return
-            last_token = re.split(r"[+\-×÷^]", self.expression)[-1]
-            if "." in last_token:
-                return
-            self.expression += "."
-            return
-
-        if text in ("(", ")"):
-            if text == "(":
-                if self.expression and (self.expression[-1].isdigit() or self.expression.endswith(")")):
-                    self.expression += "*("
-                else:
-                    self.expression += "("
-            else:
-                if not self.expression:
-                    return
-                if self.expression[-1] in OPERATORS or self.expression[-1] == "(":
-                    return
-                if self.expression.count("(") <= self.expression.count(")"):
-                    return
-                self.expression += ")"
-            return
-
-        if self.just_calculated and text.isdigit():
-            self.expression = ""
-        self.just_calculated = False
-
-        if self.expression and self.expression[-1] == ")" and text.isdigit():
-            self.expression += "*"
-        self.expression += text
+    def show(self):
+        self.result_label.text = self.expression if self.expression else "0"
 
     def on_button_press(self, instance):
         text = instance.text
-
-        if text in ("MC", "MR", "M+", "M-"):
-            self.memory_action(text)
-            self.update_display()
-            return
-
-        if text == "COPY":
-            self.copy_result()
-            return
-
-        if text == "C":
+        if self.expression == "Error":
             self.expression = ""
-            self.history_label.text = ""
-            self.just_calculated = False
-            self.update_display()
-            return
+        self.status_label.text = ""
 
-        if text == "DEL":
-            if self.expression and self.expression != "Error":
-                self.expression = self.expression[:-1]
-            else:
-                self.expression = ""
-            self.just_calculated = False
-            self.update_display()
-            return
-
-        if text == "=":
-            if not self.expression:
-                return
-            old_expression = self.expression
-            result = self.engine.calculate(old_expression)
-            if result == "Error":
-                self.expression = "Error"
-                self.history_label.text = "Invalid expression"
-            else:
-                self.history.insert(0, old_expression + " = " + result)
-                self.history = self.history[:30]
-                self.history_label.text = old_expression
-                self.expression = result
-            self.just_calculated = True
-            self.update_display()
-            return
-
-        if text in ("RAD", "DEG"):
+        if text == 'C':
+            self.expression = ""
+        elif text == 'DEL':
+            self.expression = self.expression[:-1]
+        elif text == '=':
+            self.expression = self.engine.calculate(self.expression)
+        elif text in ('RAD', 'DEG'):
             self.engine.is_rad = not self.engine.is_rad
-            self.history_label.text = "Mode: " + ("RAD" if self.engine.is_rad else "DEG")
+            instance.text = "RAD" if self.engine.is_rad else "DEG"
             return
-
-        if text in OPERATORS:
-            self.just_calculated = False
-            self.add_operator(text)
-            self.update_display()
+        elif text == 'MC':
+            self.memory = 0.0
+            self.status_label.text = "Memory cleared"
             return
-
-        if text in FUNCTIONS:
-            if self.just_calculated:
-                self.expression = ""
-            self.just_calculated = False
-            if self.expression and (self.expression[-1].isdigit() or self.expression[-1] == ")"):
-                self.expression += "*"
+        elif text == 'MR':
+            m = fmt(self.memory)
+            self.expression += "(%s)" % m if self.memory < 0 else m
+        elif text in ('M+', 'M-'):
+            v = self.current_value()
+            if v is None:
+                self.status_label.text = "Error"
+                return
+            self.memory += v if text == 'M+' else -v
+            self.status_label.text = "Memory: " + fmt(self.memory)
+            return
+        elif text == 'COPY':
+            try:
+                Clipboard.copy(self.result_label.text)
+                self.status_label.text = "Copied: " + self.result_label.text
+            except Exception:
+                self.status_label.text = "Copy failed"
+            return
+        elif text in FUNCS:
             self.expression += text + "("
-            self.update_display()
-            return
+        else:
+            self.expression += text
 
-        self.append_numeric(text)
-        self.update_display()
+        self.show()
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     SadafCalculatorApp().run()
