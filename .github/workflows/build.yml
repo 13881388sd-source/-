@@ -13,6 +13,70 @@ jobs:
       - name: Download font
         run: |
           curl -fsSL "https://github.com/google/fonts/raw/main/ofl/cinzeldecorative/CinzelDecorative-Bold.ttf" -o font.tmp && mv font.tmp sadaf_font.ttf || echo "font download failed"
+      - name: Make icon and splash
+        run: |
+          pip install pillow
+          python - <<'EOF'
+          import os
+          from PIL import Image, ImageDraw, ImageFont
+
+          os.makedirs("data", exist_ok=True)
+          RED = (229, 9, 20, 255)
+          EDGE = (10, 10, 10)
+          CENTER = (70, 6, 10)
+
+          def get_font(size):
+              for path in ("sadaf_font.ttf",
+                           "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf",
+                           "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"):
+                  if os.path.exists(path):
+                      try:
+                          return ImageFont.truetype(path, size)
+                      except Exception:
+                          pass
+              return ImageFont.load_default()
+
+          def background(size):
+              mask = Image.radial_gradient("L").resize((size, size), Image.BICUBIC)
+              return Image.composite(Image.new("RGB", (size, size), EDGE),
+                                     Image.new("RGB", (size, size), CENTER), mask).convert("RGBA")
+
+          def heart_layer(size, s, cx, top):
+              layer = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+              d = ImageDraw.Draw(layer)
+              x = cx - s / 2
+              d.ellipse([x, top, x + 0.5 * s, top + 0.5 * s], fill=RED)
+              d.ellipse([x + 0.5 * s, top, x + s, top + 0.5 * s], fill=RED)
+              d.polygon([(x + 0.073 * s, top + 0.427 * s), (x + 0.927 * s, top + 0.427 * s),
+                         (x + 0.5 * s, top + 0.854 * s)], fill=RED)
+              d.polygon([(x + 0.073 * s, top + 0.427 * s), (x + 0.927 * s, top + 0.427 * s),
+                         (x + 0.5 * s, top + 0.25 * s)], fill=RED)
+              shine = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+              ImageDraw.Draw(shine).ellipse([x + 0.12 * s, top + 0.1 * s, x + 0.3 * s, top + 0.22 * s],
+                                            fill=(255, 255, 255, 70))
+              return Image.alpha_composite(layer, shine)
+
+          def foreground(size, scale=1.0):
+              layer = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+              s = 360 * scale * size / 1024
+              layer = Image.alpha_composite(layer, heart_layer(size, s, size / 2, size * 0.24))
+              d = ImageDraw.Draw(layer)
+              font = get_font(int(112 * scale * size / 1024))
+              box = d.textbbox((0, 0), "SADAF", font=font)
+              w = box[2] - box[0]
+              d.text(((size - w) / 2 - box[0], size * 0.70 - box[1]), "SADAF", font=font,
+                     fill=(245, 245, 245, 255))
+              return layer
+
+          fg = foreground(1024)
+          bg = background(1024)
+          fg.save("data/icon_fg.png")
+          bg.convert("RGB").save("data/icon_bg.png")
+          Image.alpha_composite(bg, fg).resize((512, 512), Image.LANCZOS).convert("RGB").save("data/icon.png")
+          pre = Image.alpha_composite(background(1024), foreground(1024, 1.15))
+          pre.convert("RGB").save("data/presplash.png")
+          print("assets ready")
+          EOF
       - name: Install dependencies
         run: |
           sudo apt-get update
